@@ -3,6 +3,7 @@
 
 import 'dart:async';
 import 'dart:isolate';
+import 'dart:collection';
 
 import 'package:realm_dart/src/logging.dart';
 
@@ -15,6 +16,12 @@ final Scheduler scheduler = Scheduler._();
 class Scheduler {
   late final SchedulerHandle handle;
   final RawReceivePort _receivePort = RawReceivePort();
+  // Queue of pending Realm work queue pointers (as int addresses) to process.
+  final Queue<int> _pendingWork = Queue<int>();
+  bool _isDraining = false;
+  // Time budget per drain pass to avoid long blocking on UI isolate.
+  // Keep small to let frames render; tweak if needed.
+  Duration drainBudget = const Duration(milliseconds: 6);
 
   Scheduler._() {
     _receivePortFinalizer.attach(this, _receivePort, detach: this);
@@ -42,9 +49,39 @@ class Scheduler {
       final text = message[2] as String;
       Realm.logger.raise((category: category, level: level, message: text));
     } else if (message is int) {
-      handle.invoke(message);
+      // Queue and process with a small time budget to prevent jank.
+      _pendingWork.addLast(message);
+      if (!_isDraining) {
+        _isDraining = true;
+        _scheduleDrain();
+      }
     } else {
       Realm.logger.log(LogLevel.error, 'Unexpected Scheduler message type: ${message.runtimeType} - $message');
+    }
+  }
+
+  void _scheduleDrain() {
+    // Use a zero-delay future to yield to the event loop (not a microtask),
+    // allowing a frame to render before heavy work resumes.
+    Future<void>(() => _drain());
+  }
+
+  void _drain() {
+    final sw = Stopwatch()..start();
+    while (_pendingWork.isNotEmpty && sw.elapsed < drainBudget) {
+      final workQueueAddr = _pendingWork.removeFirst();
+      try {
+        handle.invoke(workQueueAddr);
+      } catch (e, st) {
+        Realm.logger.log(LogLevel.error, 'Scheduler.invoke failed: $e\n$st');
+      }
+    }
+
+    if (_pendingWork.isNotEmpty) {
+      // More work left; schedule another slice to keep UI responsive.
+      _scheduleDrain();
+    } else {
+      _isDraining = false;
     }
   }
 
@@ -52,6 +89,8 @@ class Scheduler {
     if (handle.released) {
       return;
     }
+  _pendingWork.clear();
+  _isDraining = false;
     _receivePort.close();
     _receivePortFinalizer.detach(this);
     handle.release();
