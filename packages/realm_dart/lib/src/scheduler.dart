@@ -71,7 +71,15 @@ class Scheduler {
     while (_pendingWork.isNotEmpty && sw.elapsed < drainBudget) {
       final workQueueAddr = _pendingWork.removeFirst();
       try {
+        final one = Stopwatch()..start();
         handle.invoke(workQueueAddr);
+        one.stop();
+    if (one.elapsedMilliseconds >= 16) {
+          Realm.logger.log(
+      LogLevel.warn,
+            'Realm scheduler work took ${one.elapsedMilliseconds}ms (remaining queued: ${_pendingWork.length})',
+          );
+        }
       } catch (e, st) {
         Realm.logger.log(LogLevel.error, 'Scheduler.invoke failed: $e\n$st');
       }
