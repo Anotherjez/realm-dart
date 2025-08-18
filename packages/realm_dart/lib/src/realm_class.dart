@@ -204,10 +204,10 @@ class Realm {
     final accessor = RealmCoreAccessor(metadata, _isInMigration);
     object.manage(this, handle, accessor, update);
     final manageTime = sw.elapsedMilliseconds;
-    
+
     if (manageTime >= 50) {
-      logger.log(LogLevel.warn, 
-        'Realm.add took ${manageTime}ms (metadata: ${metadataTime}ms, create: ${createTime - metadataTime}ms, manage: ${manageTime - createTime}ms)');
+      logger.log(LogLevel.warn,
+          'Realm.add took ${manageTime}ms (metadata: ${metadataTime}ms, create: ${createTime - metadataTime}ms, manage: ${manageTime - createTime}ms)');
     }
 
     return object;
@@ -301,10 +301,10 @@ class Realm {
       final callbackTime = sw.elapsedMilliseconds;
       transaction.commit();
       final commitTime = sw.elapsedMilliseconds;
-      
+
       if (commitTime >= 100) {
-        logger.log(LogLevel.warn, 
-          'Realm.write took ${commitTime}ms total (begin: ${beginTime}ms, callback: ${callbackTime - beginTime}ms, commit: ${commitTime - callbackTime}ms)');
+        logger.log(LogLevel.warn,
+            'Realm.write took ${commitTime}ms total (begin: ${beginTime}ms, callback: ${callbackTime - beginTime}ms, commit: ${commitTime - callbackTime}ms)');
       }
       return result;
     } catch (e) {

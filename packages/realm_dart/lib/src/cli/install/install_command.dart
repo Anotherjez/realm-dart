@@ -56,24 +56,61 @@ class InstallCommand extends Command<void> {
   }
 
   Future<bool> shouldSkipDownload(String binariesPath, String expectedVersion) async {
-    final versionsFile = File(path.join(binariesPath, versionFileName));
-    if (await versionsFile.exists()) {
-      final existingVersion = await versionsFile.readAsString();
-      if (expectedVersion == existingVersion) {
-        print('Realm binaries for $expectedVersion already downloaded');
-        return true;
+    try {
+      final versionsFile = File(path.join(binariesPath, versionFileName));
+      if (await versionsFile.exists()) {
+        final existingVersion = await versionsFile.readAsString();
+        if (expectedVersion == existingVersion) {
+          print('Realm binaries for $expectedVersion already downloaded');
+          return true;
+        }
       }
+    } catch (e) {
+      // If we can't read the version file, assume we need to download
+      print('Could not read version file, will download binaries: $e');
     }
     return false;
   }
 
   Future<void> downloadAndExtractBinaries(Directory destinationDir, Version version, String archiveName) async {
+    // Use a lock file to prevent concurrent downloads to the same location
+    final lockFile = File(path.join(destinationDir.absolute.path, '.realm_install.lock'));
+    
+    // Check if another process is currently installing
+    if (await lockFile.exists()) {
+      print('Another install process is running, waiting...');
+      var attempts = 0;
+      while (await lockFile.exists() && attempts < 30) { // Wait up to 30 seconds
+        await Future.delayed(Duration(seconds: 1));
+        attempts++;
+      }
+      if (await lockFile.exists()) {
+        print('Warning: Lock file still exists after waiting, proceeding anyway...');
+        try {
+          await lockFile.delete();
+        } catch (e) {
+          print('Could not delete lock file: $e');
+        }
+      }
+    }
+    
     if (await shouldSkipDownload(destinationDir.absolute.path, version.toString())) {
       return;
     }
 
-    if (!await destinationDir.exists()) {
-      await destinationDir.create(recursive: true);
+    // Create lock file
+    try {
+      if (!await destinationDir.exists()) {
+        await destinationDir.create(recursive: true);
+      }
+      await lockFile.writeAsString('${DateTime.now().toIso8601String()}\n${Platform.resolvedExecutable}');
+    } catch (e) {
+      if (e is PathExistsException) {
+        // Directory was created by another process, continue
+        print('Directory ${destinationDir.absolute.path} already exists, continuing...');
+      } else {
+        rethrow;
+      }
     }
 
     final destinationFile = File(path.join(Directory.systemTemp.createTempSync('realm-binary-').absolute.path, archiveName));
@@ -81,31 +118,53 @@ class InstallCommand extends Command<void> {
       await destinationFile.parent.create(recursive: true);
     }
 
-    print('Downloading Realm binaries for $version to ${destinationFile.absolute.path}');
-    final client = HttpClient();
-    var url = 'https://static.realm.io/downloads/dart/${Uri.encodeComponent(version.toString())}/$archiveName';
-    if (debug) {
-      url = 'http://localhost:8000/$archiveName';
-    }
     try {
-      final request = await client.getUrl(Uri.parse(url));
-      final response = await request.close();
-      if (response.statusCode >= 400) {
-        throw Exception('Error downloading Realm binaries from $url. Error code: ${response.statusCode}');
+      print('Downloading Realm binaries for $version to ${destinationFile.absolute.path}');
+      final client = HttpClient();
+      var url = 'https://static.realm.io/downloads/dart/${Uri.encodeComponent(version.toString())}/$archiveName';
+      if (debug) {
+        url = 'http://localhost:8000/$archiveName';
       }
-      await response.pipe(destinationFile.openWrite());
-    }
-    // TODO: Handle download errors in Install command catch https://github.com/realm/realm-dart/issues/696.
-    finally {
-      client.close(force: true);
-    }
+      try {
+        final request = await client.getUrl(Uri.parse(url));
+        final response = await request.close();
+        if (response.statusCode >= 400) {
+          throw Exception('Error downloading Realm binaries from $url. Error code: ${response.statusCode}');
+        }
+        await response.pipe(destinationFile.openWrite());
+      }
+      // TODO: Handle download errors in Install command catch https://github.com/realm/realm-dart/issues/696.
+      finally {
+        client.close(force: true);
+      }
 
-    print('Extracting Realm binaries to ${destinationDir.absolute.path}');
-    final archive = Archive();
-    await archive.extract(destinationFile, destinationDir);
+      print('Extracting Realm binaries to ${destinationDir.absolute.path}');
+      
+      // Clean up any existing incomplete installation
+      try {
+        final versionFile = File(path.join(destinationDir.absolute.path, versionFileName));
+        if (await versionFile.exists()) {
+          await versionFile.delete();
+        }
+      } catch (e) {
+        print('Warning: Could not clean up existing version file: $e');
+      }
+      
+      final archive = Archive();
+      await archive.extract(destinationFile, destinationDir);
 
-    final versionFile = File(path.join(destinationDir.absolute.path, versionFileName));
-    await versionFile.writeAsString(version.toString());
+      final versionFile = File(path.join(destinationDir.absolute.path, versionFileName));
+      await versionFile.writeAsString(version.toString());
+    } finally {
+      // Clean up lock file
+      try {
+        if (await lockFile.exists()) {
+          await lockFile.delete();
+        }
+      } catch (e) {
+        print('Warning: Could not clean up lock file: $e');
+      }
+    }
   }
 
   Future<Directory> getPackagePath(String name) async {
