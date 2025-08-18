@@ -1,9 +1,11 @@
 import 'dart:ffi';
 
 import '../../realm_dart.dart';
+import '../../logging.dart';
 import 'collection_changes_handle.dart';
 import 'from_native.dart';
 import 'realm_bindings.dart';
+import 'realm_core.dart';
 import 'realm_handle.dart';
 import 'realm_library.dart';
 import 'rooted_handle.dart';
@@ -15,6 +17,7 @@ class NotificationTokenHandle extends RootedHandleBase<realm_notification_token>
 }
 
 void collectionChangeCallback(Pointer<Void> userdata, Pointer<realm_collection_changes> data) {
+  final sw = Stopwatch()..start();
   final NotificationsController controller = userdata.toObject();
 
   if (data == nullptr) {
@@ -31,6 +34,10 @@ void collectionChangeCallback(Pointer<Void> userdata, Pointer<realm_collection_c
 
     final changesHandle = CollectionChangesHandle(clonedData.cast());
     controller.onChanges(changesHandle);
+    final elapsed = sw.elapsedMilliseconds;
+    if (elapsed >= 50) {
+      realmCore.logMessage(LogCategory.realm.sdk, LogLevel.warn, 'Collection change notification processing took ${elapsed}ms');
+    }
   } catch (e) {
     controller.onError(RealmError("Error handling change notifications. Error: $e"));
   }

@@ -190,31 +190,46 @@ class Realm {
   /// Throws [RealmException] when trying to add objects with the same primary key.
   /// Throws [RealmException] if there is no write transaction created with [write].
   T add<T extends RealmObject>(T object, {bool update = false}) {
+    final sw = Stopwatch()..start();
     if (object.isManaged) {
       _ensureManagedByThis(object, 'add object to Realm');
-
       return object;
     }
 
     final metadata = _metadata.getByType(object.runtimeType);
+    final metadataTime = sw.elapsedMilliseconds;
     final handle = _createObject(object, metadata, update);
+    final createTime = sw.elapsedMilliseconds;
 
     final accessor = RealmCoreAccessor(metadata, _isInMigration);
     object.manage(this, handle, accessor, update);
+    final manageTime = sw.elapsedMilliseconds;
+    
+    if (manageTime >= 50) {
+      logger.log(LogLevel.warn, 
+        'Realm.add took ${manageTime}ms (metadata: ${metadataTime}ms, create: ${createTime - metadataTime}ms, manage: ${manageTime - createTime}ms)');
+    }
 
     return object;
   }
 
   ObjectHandle _createObject(RealmObjectBase object, RealmObjectMetadata metadata, bool update) {
+    final sw = Stopwatch()..start();
     final key = metadata.classKey;
     final primaryKey = metadata.primaryKey;
+    ObjectHandle result;
     if (primaryKey == null) {
-      return handle.create(key);
+      result = handle.create(key);
+    } else if (update) {
+      result = _handle.getOrCreateWithPrimaryKey(key, object.accessor.get(object, primaryKey));
+    } else {
+      result = _handle.createWithPrimaryKey(key, object.accessor.get(object, primaryKey));
     }
-    if (update) {
-      return _handle.getOrCreateWithPrimaryKey(key, object.accessor.get(object, primaryKey));
+    final elapsed = sw.elapsedMilliseconds;
+    if (elapsed >= 50) {
+      logger.log(LogLevel.warn, 'Realm._createObject took ${elapsed}ms (${primaryKey != null ? 'with' : 'without'} primary key, update: $update)');
     }
-    return _handle.createWithPrimaryKey(key, object.accessor.get(object, primaryKey));
+    return result;
   }
 
   /// Adds a collection [RealmObject]s to this `Realm`.
@@ -278,10 +293,19 @@ class Realm {
   /// It is more efficient to update several properties or even create multiple objects in a single write transaction.
   T write<T>(T Function() writeCallback) {
     assert(!_isFuture<T>(), 'writeCallback must be synchronous');
+    final sw = Stopwatch()..start();
     final transaction = beginWrite();
+    final beginTime = sw.elapsedMilliseconds;
     try {
       T result = writeCallback();
+      final callbackTime = sw.elapsedMilliseconds;
       transaction.commit();
+      final commitTime = sw.elapsedMilliseconds;
+      
+      if (commitTime >= 100) {
+        logger.log(LogLevel.warn, 
+          'Realm.write took ${commitTime}ms total (begin: ${beginTime}ms, callback: ${callbackTime - beginTime}ms, commit: ${commitTime - callbackTime}ms)');
+      }
       return result;
     } catch (e) {
       transaction.rollback();
@@ -291,7 +315,12 @@ class Realm {
 
   /// Begins a write transaction for this [Realm].
   Transaction beginWrite() {
+    final sw = Stopwatch()..start();
     handle.beginWrite();
+    final elapsed = sw.elapsedMilliseconds;
+    if (elapsed >= 50) {
+      logger.log(LogLevel.warn, 'Realm.beginWrite took ${elapsed}ms');
+    }
     return Transaction._(this);
   }
 
@@ -493,6 +522,7 @@ class Realm {
   ///
   /// Returns a [Stream] of [RealmSchemaChanges] that can be listened to.
   // TODO: this is private due to https://github.com/realm/realm-core/issues/7426. Once that is fixed, we can expose it.
+  /*
   Stream<RealmSchemaChanges> get _schemaChanges {
     late StreamController<RealmSchemaChanges> controller;
     controller = StreamController<RealmSchemaChanges>(
@@ -503,6 +533,7 @@ class Realm {
         sync: true);
     return controller.stream;
   }
+  */
 
   void _updateSchema() {
     final newSchema = handle.readSchema();
@@ -559,9 +590,12 @@ class Transaction {
   /// Commits the changes to the Realm.
   void commit() {
     final realm = _ensureOpen('commit');
-
+    final sw = Stopwatch()..start();
     realm.handle.commitWrite();
-
+    final elapsed = sw.elapsedMilliseconds;
+    if (elapsed >= 50) {
+      Realm.logger.log(LogLevel.warn, 'Transaction.commit took ${elapsed}ms');
+    }
     _closeTransaction();
   }
 

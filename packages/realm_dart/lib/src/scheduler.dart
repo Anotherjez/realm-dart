@@ -74,9 +74,9 @@ class Scheduler {
         final one = Stopwatch()..start();
         handle.invoke(workQueueAddr);
         one.stop();
-    if (one.elapsedMilliseconds >= 16) {
+        if (one.elapsedMilliseconds >= 16) {
           Realm.logger.log(
-      LogLevel.warn,
+            LogLevel.warn,
             'Realm scheduler work took ${one.elapsedMilliseconds}ms (remaining queued: ${_pendingWork.length})',
           );
         }
@@ -97,8 +97,8 @@ class Scheduler {
     if (handle.released) {
       return;
     }
-  _pendingWork.clear();
-  _isDraining = false;
+    _pendingWork.clear();
+    _isDraining = false;
     _receivePort.close();
     _receivePortFinalizer.detach(this);
     handle.release();

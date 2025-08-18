@@ -77,14 +77,26 @@ class RealmHandle extends HandleBase<shared_realm> implements intf.RealmHandle {
   @override
   ObjectHandle createWithPrimaryKey(int classKey, Object? primaryKey) {
     return using((arena) {
+      final sw = Stopwatch()..start();
       final realmValue = primaryKey.toNative(arena);
-      return ObjectHandle(realmLib.realm_object_create_with_primary_key(pointer, classKey, realmValue.ref), this);
+      final result = ObjectHandle(realmLib.realm_object_create_with_primary_key(pointer, classKey, realmValue.ref), this);
+      final elapsed = sw.elapsedMilliseconds;
+      if (elapsed >= 50) {
+        Realm.logger.log(LogLevel.warn, 'Native realm_object_create_with_primary_key took ${elapsed}ms (classKey: $classKey)');
+      }
+      return result;
     });
   }
 
   @override
   ObjectHandle create(int classKey) {
-    return ObjectHandle(realmLib.realm_object_create(pointer, classKey), this);
+    final sw = Stopwatch()..start();
+    final result = ObjectHandle(realmLib.realm_object_create(pointer, classKey), this);
+    final elapsed = sw.elapsedMilliseconds;
+    if (elapsed >= 50) {
+      Realm.logger.log(LogLevel.warn, 'Native realm_object_create took ${elapsed}ms (classKey: $classKey)');
+    }
+    return result;
   }
 
   @override
@@ -122,6 +134,7 @@ class RealmHandle extends HandleBase<shared_realm> implements intf.RealmHandle {
   @override
   ResultsHandle queryClass(int classKey, String query, List<Object?> args) {
     return using((arena) {
+      final sw = Stopwatch()..start();
       final length = args.length;
       final argsPointer = arena<realm_query_arg_t>(length);
       for (var i = 0; i < length; ++i) {
@@ -137,7 +150,12 @@ class RealmHandle extends HandleBase<shared_realm> implements intf.RealmHandle {
         ),
         this,
       );
-      return queryHandle.findAll();
+      final result = queryHandle.findAll();
+      final elapsed = sw.elapsedMilliseconds;
+      if (elapsed >= 50) {
+        Realm.logger.log(LogLevel.warn, 'Native realm_query_parse+findAll took ${elapsed}ms (classKey: $classKey, query: "$query")');
+      }
+      return result;
     });
   }
 
@@ -166,12 +184,22 @@ class RealmHandle extends HandleBase<shared_realm> implements intf.RealmHandle {
 
   @override
   void beginWrite() {
+    final sw = Stopwatch()..start();
     realmLib.realm_begin_write(pointer).raiseLastErrorIfFalse();
+    final elapsed = sw.elapsedMilliseconds;
+    if (elapsed >= 50) {
+      Realm.logger.log(LogLevel.warn, 'Native realm_begin_write took ${elapsed}ms');
+    }
   }
 
   @override
   void commitWrite() {
+    final sw = Stopwatch()..start();
     realmLib.realm_commit(pointer).raiseLastErrorIfFalse();
+    final elapsed = sw.elapsedMilliseconds;
+    if (elapsed >= 50) {
+      Realm.logger.log(LogLevel.warn, 'Native realm_commit took ${elapsed}ms');
+    }
   }
 
   @override
@@ -263,8 +291,13 @@ class RealmHandle extends HandleBase<shared_realm> implements intf.RealmHandle {
   @override
   bool refresh() {
     return using((arena) {
+      final sw = Stopwatch()..start();
       final didRefresh = arena<Bool>();
       realmLib.realm_refresh(pointer, didRefresh).raiseLastErrorIfFalse();
+      final elapsed = sw.elapsedMilliseconds;
+      if (elapsed >= 50) {
+        Realm.logger.log(LogLevel.warn, 'Native realm_refresh took ${elapsed}ms (didRefresh: ${didRefresh.value})');
+      }
       return didRefresh.value;
     });
   }
@@ -293,7 +326,13 @@ class RealmHandle extends HandleBase<shared_realm> implements intf.RealmHandle {
 
   @override
   ResultsHandle findAll(int classKey) {
-    return ResultsHandle(realmLib.realm_object_find_all(pointer, classKey), this);
+    final sw = Stopwatch()..start();
+    final result = ResultsHandle(realmLib.realm_object_find_all(pointer, classKey), this);
+    final elapsed = sw.elapsedMilliseconds;
+    if (elapsed >= 50) {
+      Realm.logger.log(LogLevel.warn, 'Native realm_object_find_all took ${elapsed}ms (classKey: $classKey)');
+    }
+    return result;
   }
 
   @override
@@ -415,8 +454,6 @@ class RealmHandle extends HandleBase<shared_realm> implements intf.RealmHandle {
       case ObjectType.embeddedObject:
         type = EmbeddedObject;
         break;
-      default:
-        throw RealmError('$baseType is not supported yet');
     }
 
     return SchemaObject(baseType, type, name, result);
