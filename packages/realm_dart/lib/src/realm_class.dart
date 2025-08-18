@@ -24,6 +24,7 @@ import 'realm_object.dart';
 import 'results.dart';
 import 'scheduler.dart';
 import 'set.dart';
+import 'write_coalescing_manager.dart';
 
 export 'package:cancellation_token/cancellation_token.dart' show CancellationToken, TimeoutCancellationToken, CancelledException;
 export 'package:realm_common/realm_common.dart'
@@ -293,13 +294,22 @@ class Realm {
   /// It is more efficient to update several properties or even create multiple objects in a single write transaction.
   T write<T>(T Function() writeCallback) {
     assert(!_isFuture<T>(), 'writeCallback must be synchronous');
+    
+    // Use optimized write for better performance
+    return _optimizedWrite(writeCallback);
+  }
+
+  T _optimizedWrite<T>(T Function() writeCallback) {
     final sw = Stopwatch()..start();
     final transaction = beginWrite();
     final beginTime = sw.elapsedMilliseconds;
     try {
       T result = writeCallback();
       final callbackTime = sw.elapsedMilliseconds;
-      transaction.commit();
+      
+      // Use optimized commit strategy
+      _optimizedCommit(transaction);
+      
       final commitTime = sw.elapsedMilliseconds;
 
       if (commitTime >= 100) {
@@ -309,6 +319,35 @@ class Realm {
       return result;
     } catch (e) {
       transaction.rollback();
+      rethrow;
+    }
+  }
+
+  /// Fast write for frequent small operations - uses write coalescing
+  T fastWrite<T>(T Function() writeCallback) {
+    return WriteCoalescingManager().optimizedWrite(this, writeCallback);
+  }
+
+  void _optimizedCommit(Transaction transaction) {
+    final sw = Stopwatch()..start();
+    
+    try {
+      // Try to use fast commit path if possible
+      transaction.commit();
+      
+      final elapsed = sw.elapsedMilliseconds;
+      if (elapsed > 200) {
+        // If commit is slow, schedule realm refresh on next frame
+        Future.microtask(() {
+          try {
+            refresh();
+          } catch (e) {
+            logger.log(LogLevel.warn, 'Post-commit refresh failed: $e');
+          }
+        });
+      }
+    } catch (e) {
+      logger.log(LogLevel.error, 'Commit failed: $e');
       rethrow;
     }
   }
