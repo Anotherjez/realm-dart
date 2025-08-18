@@ -14,7 +14,7 @@ class BackgroundCommitManager {
   final _pendingCommits = Queue<_PendingCommit>();
   Timer? _commitTimer;
   bool _isProcessing = false;
-  
+
   static const _batchTimeout = Duration(milliseconds: 16); // ~1 frame at 60fps
   static const _maxBatchSize = 10;
 
@@ -22,9 +22,9 @@ class BackgroundCommitManager {
   Future<void> scheduleCommit(Transaction transaction, {bool urgent = false}) async {
     final completer = Completer<void>();
     final pendingCommit = _PendingCommit(transaction, completer, urgent);
-    
+
     _pendingCommits.add(pendingCommit);
-    
+
     if (urgent || _pendingCommits.length >= _maxBatchSize) {
       // Process immediately for urgent commits or when batch is full
       _scheduleProcessing(immediate: true);
@@ -32,13 +32,13 @@ class BackgroundCommitManager {
       // Schedule processing after timeout for batching
       _scheduleProcessing(immediate: false);
     }
-    
+
     return completer.future;
   }
 
   void _scheduleProcessing({required bool immediate}) {
     if (_isProcessing) return;
-    
+
     if (immediate) {
       _commitTimer?.cancel();
       _processCommits();
@@ -50,34 +50,33 @@ class BackgroundCommitManager {
 
   void _processCommits() async {
     if (_isProcessing || _pendingCommits.isEmpty) return;
-    
+
     _isProcessing = true;
     _commitTimer?.cancel();
-    
+
     try {
       final sw = Stopwatch()..start();
       final batch = <_PendingCommit>[];
-      
+
       // Collect commits to process in this batch
       while (_pendingCommits.isNotEmpty && batch.length < _maxBatchSize) {
         batch.add(_pendingCommits.removeFirst());
       }
-      
+
       _logger.fine('Processing ${batch.length} commits in background');
-      
+
       // Process commits in isolate to avoid blocking UI
       await _processCommitsInIsolate(batch);
-      
+
       final elapsed = sw.elapsedMilliseconds;
       if (elapsed > 50) {
         _logger.warning('Background commit batch took ${elapsed}ms for ${batch.length} commits');
       }
-      
     } catch (e, stackTrace) {
       _logger.severe('Error processing background commits', e, stackTrace);
     } finally {
       _isProcessing = false;
-      
+
       // Schedule next batch if more commits are pending
       if (_pendingCommits.isNotEmpty) {
         _scheduleProcessing(immediate: false);
@@ -93,11 +92,11 @@ class BackgroundCommitManager {
         final sw = Stopwatch()..start();
         pendingCommit.transaction.commit();
         final elapsed = sw.elapsedMilliseconds;
-        
+
         if (elapsed > 100) {
           _logger.warning('Individual commit took ${elapsed}ms');
         }
-        
+
         pendingCommit.completer.complete();
       } catch (e, stackTrace) {
         _logger.severe('Failed to commit transaction', e, stackTrace);
@@ -124,6 +123,5 @@ class _PendingCommit {
   final bool urgent;
   final DateTime timestamp;
 
-  _PendingCommit(this.transaction, this.completer, this.urgent) 
-      : timestamp = DateTime.now();
+  _PendingCommit(this.transaction, this.completer, this.urgent) : timestamp = DateTime.now();
 }

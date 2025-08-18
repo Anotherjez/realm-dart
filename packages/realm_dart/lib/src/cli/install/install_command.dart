@@ -75,12 +75,13 @@ class InstallCommand extends Command<void> {
   Future<void> downloadAndExtractBinaries(Directory destinationDir, Version version, String archiveName) async {
     // Use a lock file to prevent concurrent downloads to the same location
     final lockFile = File(path.join(destinationDir.absolute.path, '.realm_install.lock'));
-    
+
     // Check if another process is currently installing
     if (await lockFile.exists()) {
       print('Another install process is running, waiting...');
       var attempts = 0;
-      while (await lockFile.exists() && attempts < 30) { // Wait up to 30 seconds
+      while (await lockFile.exists() && attempts < 30) {
+        // Wait up to 30 seconds
         await Future.delayed(Duration(seconds: 1));
         attempts++;
       }
@@ -93,7 +94,7 @@ class InstallCommand extends Command<void> {
         }
       }
     }
-    
+
     if (await shouldSkipDownload(destinationDir.absolute.path, version.toString())) {
       return;
     }
@@ -139,7 +140,7 @@ class InstallCommand extends Command<void> {
       }
 
       print('Extracting Realm binaries to ${destinationDir.absolute.path}');
-      
+
       // Clean up any existing incomplete installation
       try {
         final versionFile = File(path.join(destinationDir.absolute.path, versionFileName));
@@ -149,7 +150,7 @@ class InstallCommand extends Command<void> {
       } catch (e) {
         print('Warning: Could not clean up existing version file: $e');
       }
-      
+
       final archive = Archive();
       await archive.extract(destinationFile, destinationDir);
 

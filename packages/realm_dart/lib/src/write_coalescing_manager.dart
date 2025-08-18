@@ -12,7 +12,7 @@ class WriteCoalescingManager {
   final _logger = Logger('WriteCoalescingManager');
   final _pendingWrites = <Realm, _CoalescedWrite>{};
   Timer? _flushTimer;
-  
+
   static const _coalesceDuration = Duration(milliseconds: 8); // Half frame at 60fps
 
   /// Execute a write operation with coalescing optimization
@@ -23,7 +23,7 @@ class WriteCoalescingManager {
     }
 
     final coalescedWrite = _getOrCreateCoalescedWrite(realm);
-    
+
     // Add this write to the batch
     final completer = Completer<T>();
     coalescedWrite.operations.add(() {
@@ -36,30 +36,30 @@ class WriteCoalescingManager {
     });
 
     _scheduleFlush();
-    
+
     // Return the result synchronously for the current operation
     if (coalescedWrite.operations.length == 1) {
       // First operation in batch - execute it
       _flushWrites();
     }
-    
+
     return completer.future as T; // This will be problematic, let me fix this
   }
 
   /// Execute a write operation optimally based on current state
   T optimizedWrite<T>(Realm realm, T Function() writeCallback) {
     final coalescedWrite = _pendingWrites[realm];
-    
+
     if (coalescedWrite != null && coalescedWrite.operations.isNotEmpty) {
       // There are pending writes, add to the batch
       final allOperations = [
         ...coalescedWrite.operations,
         writeCallback,
       ];
-      
+
       // Clear pending operations
       coalescedWrite.operations.clear();
-      
+
       // Execute all operations in single transaction
       return realm.write(() {
         T? result;
@@ -78,11 +78,11 @@ class WriteCoalescingManager {
       final sw = Stopwatch()..start();
       final result = realm.write(writeCallback);
       final elapsed = sw.elapsedMilliseconds;
-      
+
       if (elapsed > 100) {
         _logger.warning('Single write took ${elapsed}ms - consider batching');
       }
-      
+
       return result;
     }
   }
@@ -98,16 +98,16 @@ class WriteCoalescingManager {
 
   void _flushWrites() {
     if (_pendingWrites.isEmpty) return;
-    
+
     _flushTimer?.cancel();
-    
+
     final writesToFlush = Map<Realm, _CoalescedWrite>.from(_pendingWrites);
     _pendingWrites.clear();
-    
+
     for (final entry in writesToFlush.entries) {
       final realm = entry.key;
       final coalescedWrite = entry.value;
-      
+
       if (coalescedWrite.operations.isNotEmpty) {
         try {
           final sw = Stopwatch()..start();
@@ -117,7 +117,7 @@ class WriteCoalescingManager {
             }
           });
           final elapsed = sw.elapsedMilliseconds;
-          
+
           _logger.fine('Flushed ${coalescedWrite.operations.length} operations in ${elapsed}ms');
         } catch (e, stackTrace) {
           _logger.severe('Failed to flush coalesced writes', e, stackTrace);

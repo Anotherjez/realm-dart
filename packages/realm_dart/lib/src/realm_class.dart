@@ -294,7 +294,7 @@ class Realm {
   /// It is more efficient to update several properties or even create multiple objects in a single write transaction.
   T write<T>(T Function() writeCallback) {
     assert(!_isFuture<T>(), 'writeCallback must be synchronous');
-    
+
     // Use optimized write for better performance
     return _optimizedWrite(writeCallback);
   }
@@ -306,10 +306,10 @@ class Realm {
     try {
       T result = writeCallback();
       final callbackTime = sw.elapsedMilliseconds;
-      
+
       // Use optimized commit strategy
       _optimizedCommit(transaction);
-      
+
       final commitTime = sw.elapsedMilliseconds;
 
       if (commitTime >= 100) {
@@ -330,11 +330,11 @@ class Realm {
 
   void _optimizedCommit(Transaction transaction) {
     final sw = Stopwatch()..start();
-    
+
     try {
       // Try to use fast commit path if possible
       transaction.commit();
-      
+
       final elapsed = sw.elapsedMilliseconds;
       if (elapsed > 200) {
         // If commit is slow, schedule realm refresh on next frame
